@@ -1,0 +1,6 @@
+Variable,Model 1 (Bivariate),Model 2 (Controlled)
+Poverty (std),-0.352*** (0.075),"-0.537*** (SE=0.064, HC3=0.059)"
+Distance (std),—,"-0.437*** (SE=0.059, HC3=0.071)"
+Population density (std),—,"-1.064*** (SE=0.043, HC3=0.077)"
+Constant,-0.039***,-0.039 (0.037)
+Observations,238,238

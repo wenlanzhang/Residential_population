@@ -1,0 +1,11 @@
+Metric,Value
+Number of quadkeys,238
+Spearman ρ,0.736
+KS statistic,0.286
+KS p-value,< 0.001
+Earth Mover's Distance,0.069
+Gini (WorldPop),0.569
+Gini (Meta baseline),0.623
+ΔGini (Meta − WP),0.054
+Mean log-ratio,-3.612
+Mean scaled log-ratio,-0.039
