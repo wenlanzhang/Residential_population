@@ -153,38 +153,74 @@ def main():
         arr = np.asarray(x)
         return float(arr.flat[0]) if arr.size > 0 else np.nan
 
+    # ML_Lag: betas = [rho, constant, poverty, distance, popdensity]
+    # ML_Error: betas = [constant, poverty, distance, popdensity, lambda]
+    slm_const, slm_pov, slm_dist, slm_pop = 1, 2, 3, 4
+    sem_const, sem_pov, sem_dist, sem_pop = 0, 1, 2, 3
+
+    def _p_fmt(p):
+        return "<0.001" if p < 0.001 else f"{p:.4f}"
+
+    def _coef_fmt(coef, p):
+        return f"{float(coef):.4f}{_stars(p)}"
+
     rows = []
-    for i, v in enumerate(["Constant", "Poverty", "Distance", "PopulationDensity"]):
+    for v, slm_i, sem_i in [
+        ("Constant", slm_const, sem_const),
+        ("Poverty (z)", slm_pov, sem_pov),
+        ("Distance (z)", slm_dist, sem_dist),
+        ("Log Population Density (z)", slm_pop, sem_pop),
+    ]:
+        slm_p = _scalar(slm.z_stat[slm_i][1])
+        sem_p = _scalar(sem.z_stat[sem_i][1])
         rows.append({
             "Variable": v,
-            "SLM_coef": _scalar(slm.betas[i]),
-            "SLM_SE": _scalar(slm.std_err[i]),
-            "SLM_p": _scalar(slm.z_stat[i][1]),
-            "SLM_sig": _stars(_scalar(slm.z_stat[i][1])),
-            "SEM_coef": _scalar(sem.betas[i]),
-            "SEM_SE": _scalar(sem.std_err[i]),
-            "SEM_p": _scalar(sem.z_stat[i][1]),
-            "SEM_sig": _stars(_scalar(sem.z_stat[i][1])),
+            "SLM_coef": _scalar(slm.betas[slm_i]),
+            "SLM_SE": _scalar(slm.std_err[slm_i]),
+            "SLM_p": slm_p,
+            "SLM_sig": _stars(slm_p),
+            "SEM_coef": _scalar(sem.betas[sem_i]),
+            "SEM_SE": _scalar(sem.std_err[sem_i]),
+            "SEM_p": sem_p,
+            "SEM_sig": _stars(sem_p),
         })
 
+    slm_rho_p = _scalar(slm.z_stat[0][1])
+    sem_lam_p = _scalar(sem.z_stat[-1][1])
     rows.append({
-        "Variable": "ρ (SLM) / λ (SEM)",
+        "Variable": "Spatial parameter",
         "SLM_coef": _scalar(slm.rho),
-        "SLM_SE": _scalar(slm.std_err[-1]),
-        "SLM_p": _scalar(slm.z_stat[-1][1]),
-        "SLM_sig": _stars(_scalar(slm.z_stat[-1][1])),
+        "SLM_SE": _scalar(slm.std_err[0]),
+        "SLM_p": slm_rho_p,
+        "SLM_sig": _stars(slm_rho_p),
         "SEM_coef": _scalar(sem.lam),
         "SEM_SE": _scalar(sem.std_err[-1]),
-        "SEM_p": _scalar(sem.z_stat[-1][1]),
-        "SEM_sig": _stars(_scalar(sem.z_stat[-1][1])),
+        "SEM_p": sem_lam_p,
+        "SEM_sig": _stars(sem_lam_p),
     })
 
     tbl = pd.DataFrame(rows)
-    tbl.to_csv(out_dir / "Table2d_spatial_regression.csv", index=False)
+    tbl.to_csv(out_dir / "Table_spatial_regression_full.csv", index=False)
+
+    # Table: Variable | SLM Coef | SEM Coef | SEM p-value
+    tbl_formatted = pd.DataFrame([
+        {"Variable": "Constant", "SLM Coef": _coef_fmt(_scalar(slm.betas[slm_const]), _scalar(slm.z_stat[slm_const][1])), "SEM Coef": _coef_fmt(_scalar(sem.betas[sem_const]), _scalar(sem.z_stat[sem_const][1])), "SEM p-value": _p_fmt(_scalar(sem.z_stat[sem_const][1]))},
+        {"Variable": "Poverty (z)", "SLM Coef": _coef_fmt(_scalar(slm.betas[slm_pov]), _scalar(slm.z_stat[slm_pov][1])), "SEM Coef": _coef_fmt(_scalar(sem.betas[sem_pov]), _scalar(sem.z_stat[sem_pov][1])), "SEM p-value": _p_fmt(_scalar(sem.z_stat[sem_pov][1]))},
+        {"Variable": "Distance (z)", "SLM Coef": _coef_fmt(_scalar(slm.betas[slm_dist]), _scalar(slm.z_stat[slm_dist][1])), "SEM Coef": _coef_fmt(_scalar(sem.betas[sem_dist]), _scalar(sem.z_stat[sem_dist][1])), "SEM p-value": _p_fmt(_scalar(sem.z_stat[sem_dist][1]))},
+        {"Variable": "Log Population Density (z)", "SLM Coef": _coef_fmt(_scalar(slm.betas[slm_pop]), _scalar(slm.z_stat[slm_pop][1])), "SEM Coef": _coef_fmt(_scalar(sem.betas[sem_pop]), _scalar(sem.z_stat[sem_pop][1])), "SEM p-value": _p_fmt(_scalar(sem.z_stat[sem_pop][1]))},
+        {"Variable": "Spatial parameter", "SLM Coef": f"ρ = {_coef_fmt(_scalar(slm.rho), slm_rho_p)}", "SEM Coef": f"λ = {_coef_fmt(_scalar(sem.lam), sem_lam_p)}", "SEM p-value": _p_fmt(sem_lam_p)},
+    ])
+    tbl_formatted.to_csv(out_dir / "Table3_SLM_SEM_coefficients.csv", index=False)
+    print("\nTable: SLM & SEM Coefficients")
+    print(tbl_formatted.to_string(index=False))
 
     # --------------------------------------------------
-    # 9️⃣ Model comparison
+    # 9️⃣ Model comparison (AIC)
     # --------------------------------------------------
+    def _aic_fmt(a):
+        a = float(a)
+        return f"{a:.1f}" if a < 1000 else f"~{int(round(a))}"
+
     comp_df = pd.DataFrame([
         {"Model": "OLS", "AIC": ols_spreg.aic, "R2": ols_spreg.r2},
         {"Model": "SLM", "AIC": slm.aic, "R2": slm.pr2},

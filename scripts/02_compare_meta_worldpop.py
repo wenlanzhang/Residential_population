@@ -252,8 +252,11 @@ def run_comparison(input_gpkg: Path, out_dir: Path, args=None):
     # Compute peripheral zones: distance from centroid to study-area centroid (in metres)
     gdf_proj = gdf_valid.to_crs("EPSG:32737")  # UTM 37S (Nairobi)
     # centroid_study = gdf_proj.geometry.centroid.unary_union.centroid
-    centroid_study = gdf_proj.geometry.centroid.union_all().centroid
+    centroid_study = gdf_proj.geometry.centroid.unary_union.centroid
     gdf_valid["dist_centroid"] = gdf_proj.geometry.centroid.distance(centroid_study)
+    gdf_valid["Distance"] = gdf_valid["dist_centroid"]
+    gdf_valid["area_km2"] = gdf_proj.geometry.area / 1e6
+    gdf_valid["PopulationDensity"] = gdf_valid["worldpop_count"] / gdf_valid["area_km2"].clip(lower=1e-6)
     # Binary: peripheral = top 25% by distance
     gdf_valid["peripheral"] = gdf_valid["dist_centroid"] >= gdf_valid["dist_centroid"].quantile(0.75)
 
@@ -292,6 +295,53 @@ def run_comparison(input_gpkg: Path, out_dir: Path, args=None):
                 if nc:
                     merged["low_nightlight"] = merged[nc] < merged[nc].median()
                     run_contextual_test(merged, "low_nightlight", "Low vs high nightlight")
+
+    # -------------------------------------------------------------------------
+    # 4c. Table 2 — OLS Regression (Area-weighted)
+    # -------------------------------------------------------------------------
+    import pandas as pd
+    if "poverty_mean" in gdf_valid.columns:
+        print("\n--- 4c. OLS Regression (scaled log-ratio ~ Poverty + Distance + Log Pop Density) ---")
+        try:
+            import statsmodels.api as sm
+            gdf_reg = gdf_valid.dropna(subset=["poverty_mean", "scaled_log_ratio", "Distance", "PopulationDensity"])
+            if "poverty_n_pixels" in gdf_reg.columns:
+                gdf_reg = gdf_reg[gdf_reg["poverty_n_pixels"] > 0]
+            if len(gdf_reg) < 10:
+                print("  Insufficient valid rows for regression, skipping Table 2")
+            else:
+                def _z(x):
+                    x = np.asarray(x, dtype=float)
+                    m, s = np.nanmean(x), np.nanstd(x)
+                    return (x - m) / (s + 1e-10)
+                pov_z = _z(gdf_reg["poverty_mean"])
+                dist_z = _z(gdf_reg["Distance"])
+                logpop_z = _z(np.log(gdf_reg["PopulationDensity"].values + 1))
+                X = sm.add_constant(np.column_stack([pov_z, dist_z, logpop_z]))
+                X_df = pd.DataFrame(X, columns=["const", "Poverty_z", "Distance_z", "LogPopDensity_z"])
+                model = sm.OLS(gdf_reg["scaled_log_ratio"].values, X_df).fit()
+                def _p_fmt(p):
+                    return "<0.001" if p < 0.001 else f"{p:.4f}"
+                def _num(x):
+                    return f"{float(x):.4f}"
+                tbl2 = pd.DataFrame([
+                    {"Variable": "Constant", "Coefficient": _num(model.params["const"]), "Std. Error": _num(model.bse["const"]), "p-value": _p_fmt(model.pvalues["const"])},
+                    {"Variable": "Poverty (z)", "Coefficient": _num(model.params["Poverty_z"]), "Std. Error": _num(model.bse["Poverty_z"]), "p-value": _p_fmt(model.pvalues["Poverty_z"])},
+                    {"Variable": "Distance (z)", "Coefficient": _num(model.params["Distance_z"]), "Std. Error": _num(model.bse["Distance_z"]), "p-value": _p_fmt(model.pvalues["Distance_z"])},
+                    {"Variable": "Log Population Density (z)", "Coefficient": _num(model.params["LogPopDensity_z"]), "Std. Error": _num(model.bse["LogPopDensity_z"]), "p-value": _p_fmt(model.pvalues["LogPopDensity_z"])},
+                ])
+                tbl2.to_csv(out_dir / "Table2_OLS_regression.csv", index=False)
+                print("\nTable 2. OLS Regression Results (Area-weighted)")
+                print(tbl2.to_string(index=False))
+                print(f"  Saved: {out_dir / 'Table2_OLS_regression.csv'}")
+                print(f"  N = {len(gdf_reg)}, R² = {model.rsquared:.4f}")
+        except ImportError:
+            print("  (Install statsmodels for OLS: pip install statsmodels)")
+        except Exception as e:
+            print(f"  OLS regression failed: {e}")
+    else:
+        print("\n--- 4c. OLS Regression ---")
+        print("  Skipped: poverty_mean not in input. Run 01 with --poverty.")
 
     # -------------------------------------------------------------------------
     # Summary & Table 1

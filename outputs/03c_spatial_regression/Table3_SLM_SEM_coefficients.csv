@@ -1,0 +1,6 @@
+Variable,SLM Coef,SEM Coef,SEM p-value
+Constant,-0.4800***,-0.2174,0.2836
+Poverty (z),-0.3884***,-0.5826***,<0.001
+Distance (z),-1.0066***,-0.7204***,<0.001
+Log Population Density (z),0.1539*,-1.3123***,<0.001
+Spatial parameter,ρ = 0.1539,λ = 0.8838***,<0.001
